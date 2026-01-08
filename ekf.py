@@ -201,125 +201,211 @@ class EKF:
 
     def update(self, imu_data, gps_data=None, phase="glide"):
         """
-        Update EKF avec toutes les mesures disponibles en un seul passage.
+        Applique les updates appropriés selon les données disponibles et la phase de vol.
         
         Args:
-            measurements: dict avec clés optionnelles:
-                - 'gps_pos': [px, py, pz]
-                - 'gps_vel': [vx, vy, vz]
-                - 'accel': [ax, ay, az]
-                - 'heading_gps': scalar (calculé si gps_vel fourni)
-            phase: str, phase de vol
+            imu_data: dict avec 'accel' [ax, ay, az] et 'gyro' [gx, gy, gz]
+            gps_data: dict optionnel avec 'position' [px,py,pz] et 'velocity' [vx,vy,vz]
+            mag_data: dict optionnel avec 'mag' [mx,my,mz]
+            phase: str, phase de vol ("ascension", "drop", "glide")
         """
-        if not self.isInitialized or phase == "drop":
+        if not self.isInitialized:
             return
         
-        measurements = {'accel':imu_data['accel']}
+        # === PHASE LARGAGE : Gyro-only, PAS D'UPDATE ===
+        if phase == "drop":
+            return  # Ne faire aucune correction pendant le largage
         
-        # === 1. CONSTRUIRE VECTEUR DE MESURE EMPILÉ ===
-        z_list = []
-        h_list = []
-        H_list = []
-        R_blocks = []
+        # === UPDATE GPS (Position + Vitesse) ===
+        if gps_data is not None and 'position' in gps_data and 'velocity' in gps_data:
+            self.update_gps_position_velocity(gps_data)
         
-        q = self.x[0:4]
-        q0, q1, q2, q3 = q.flatten()
-        
-        # --- GPS Position + Vitesse (6 mesures) ---
-        if 'gps_pos' in measurements and 'gps_vel' in measurements:
-            z_gps = np.vstack([measurements['gps_pos'], measurements['gps_vel']])
-            h_gps = np.vstack([self.x[4:7], self.x[7:10]])
-            
-            H_gps = np.zeros((6, 16))
-            H_gps[0:3, 4:7] = np.eye(3)   # ∂p/∂p
-            H_gps[3:6, 7:10] = np.eye(3)  # ∂v/∂v
-            
-            z_list.append(z_gps)
-            h_list.append(h_gps)
-            H_list.append(H_gps)
-            R_blocks.append(self.R_gps)
-        
-        # --- Accéléromètre (3 mesures) ---
-        if 'accel' in measurements:
-            accel_meas = measurements['accel']
+        # === UPDATE ACCÉLÉROMÈTRE (Roll/Pitch via gravité) ===
+        if imu_data is not None and 'accel' in imu_data:
+            # Vérifier conditions : vol quasi-rectiligne
+            accel_meas = imu_data['accel']
             accel_norm = np.linalg.norm(accel_meas)
             
-            # GATING : seulement si |a| ≈ g
-            if abs(accel_norm - GRAVITY) < 0.5:
-                z_accel = accel_meas.reshape((3, 1))
-                h_accel = Utils.quaternion_to_rotation_matrix(q).T @ np.array([[0], [0], [GRAVITY]])
-                
-                H_accel_jaco = np.array([
-                    [-2*q2*GRAVITY, 2*q3*GRAVITY, -2*q0*GRAVITY, 2*q1*GRAVITY],
-                    [2*q1*GRAVITY, 2*q0*GRAVITY, 2*q3*GRAVITY, 2*q2*GRAVITY],
-                    [0, -4*q1*GRAVITY, -4*q2*GRAVITY, 0]
-                ])
-                H_accel = np.hstack((H_accel_jaco, np.zeros((3, 12))))
-                
-                z_list.append(z_accel)
-                h_list.append(h_accel)
-                H_list.append(H_accel)
-                R_blocks.append(self.R_accel)
+            # GATING : Seulement si |a| ≈ g (forces dynamiques faibles)
+            if abs(accel_norm - GRAVITY) < 0.5:  # Seuil 0.5 m/s²
+                self.update_accel_gravity(imu_data)
         
-        # --- Heading GPS (1 mesure) ---
-        if 'gps_vel' in measurements and phase == "glide":
-            v_gps = measurements['gps_vel']
+        # === UPDATE HEADING ===
+        # Priorité 1 : GPS Heading (si conditions OK)
+        # Priorité 2 : Magnétomètre (sinon)
+        
+        heading_updated = False
+        
+        # Essayer GPS heading d'abord
+        if gps_data is not None and 'velocity' in gps_data:
+            v_gps = gps_data['velocity']
             v_horizontal = np.sqrt(v_gps[0]**2 + v_gps[1]**2)
+            
+            # Extraire pitch pour vérifier angle
+            q = self.x[0:4]
             pitch = Utils._get_pitch_from_quaternion(q)
             
-            # GATING : conditions GPS heading
-            if v_horizontal > 5.0 and abs(pitch) < np.radians(30):
-                z_heading = np.arctan2(v_gps[1], v_gps[0]).reshape((1, 1))
-                h_heading = np.arctan2(
-                    2 * (q0*q3 + q1*q2),
-                    q0**2 + q1**2 - q2**2 - q3**2
-                ).reshape((1, 1))
-                
-                # Jacobienne heading (calcul déjà fait dans ton code)
-                num = 2 * (q0*q3 + q1*q2)
-                den = q0**2 + q1**2 - q2**2 - q3**2
-                denom = num**2 + den**2
-                
-                dyaw_dq0 = (den * 2*q3 - num * 2*q0) / denom
-                dyaw_dq1 = (den * 2*q2 - num * 2*q1) / denom
-                dyaw_dq2 = (den * 2*q1 - num * (-2*q2)) / denom
-                dyaw_dq3 = (den * 2*q0 - num * (-2*q3)) / denom
-                
-                H_heading = np.zeros((1, 16))
-                H_heading[0, 0:4] = [dyaw_dq0, dyaw_dq1, dyaw_dq2, dyaw_dq3]
-                
-                z_list.append(z_heading)
-                h_list.append(h_heading)
-                H_list.append(H_heading)
-                R_blocks.append(self.R_heading.reshape((1, 1)))
+            # Conditions GPS heading :
+            # 1. Vitesse horizontale suffisante (> 5 m/s)
+            # 2. Pas de piqué/cabré extrême (|pitch| < 30°)
+            # 3. Phase glide (pas ascension avec vitesse faible)
+            if v_horizontal > 5.0 and abs(pitch) < np.radians(30) and phase == "glide":
+                self.update_heading_gps(gps_data)
         
-        # === 2. SI AUCUNE MESURE, SORTIR ===
-        if len(z_list) == 0:
+    def update_gps_position_velocity(self, gps_data):
+        """
+        Update EKF avec mesures GPS position + vitesse.
+        
+        Args:
+            gps_data: dict avec 'position' [px,py,pz] et 'velocity' [vx,vy,vz] en NED
+        """
+        if not self.isInitialized:
             return
         
-        # === 3. EMPILER TOUT ===
-        z = np.vstack(z_list)
-        h = np.vstack(h_list)
-        H = np.vstack(H_list)
-        R = np.block(np.diag(R_blocks))  # Matrice diagonale par blocs
+        # 1. Extraire mesure GPS (6×1)
+        z = np.vstack([
+            gps_data['position'],   # [px, py, pz]
+            gps_data['velocity']    # [vx, vy, vz]
+        ])
         
-        # === 4. UPDATE STANDARD (1 SEULE INVERSION) ===
+        # 2. Prédiction de la mesure h(x) = [p, v]
+        h = np.vstack([
+            self.x[4:7],   # position
+            self.x[7:10]   # vitesse
+        ])
+        
+        # 3. Innovation
         y = z - h
         
-        # Wrap heading innovation si présent
-        if 'gps_vel' in measurements:
-            heading_idx = sum(m.shape[0] for m in z_list[:-1])  # Index du heading
-            if y[heading_idx] > np.pi:
-                y[heading_idx] -= 2*np.pi
-            elif y[heading_idx] < -np.pi:
-                y[heading_idx] += 2*np.pi
+        # 4. Jacobienne H (6×16)
+        H = np.zeros((6, 16))
+        H[0:3, 4:7] = np.eye(3)
+        H[3:6, 7:10] = np.eye(3)
         
-        S = H @ self.P @ H.T + R
-        K = self.P @ H.T @ np.linalg.inv(S)  # ⚠️ UNE SEULE INVERSION !
+        # 5. Innovation covariance
+        S = H @ self.P @ H.T + self.R_gps
         
+        # 6. Gain de Kalman
+        K = self.P @ H.T @ np.linalg.inv(S)
+        
+        # 7. Update état
         self.x = self.x + K @ y
+        
+        # 8. Update covariance
         I_KH = np.eye(16) - K @ H
         self.P = I_KH @ self.P
         
-        # Normaliser quaternion
+        # 9. Normaliser quaternion après update
+        self.x[0:4] = self.x[0:4] / np.linalg.norm(self.x[0:4])
+
+
+    def update_accel_gravity(self, imu_data):
+
+        if not self.isInitialized:
+            return
+        
+        q = self.x[0:4]
+        q0, q1, q2, q3 = q.flatten()
+
+        z = imu_data['accel'].reshape((3,1))
+
+        h = Utils.quaternion_to_rotation_matrix(self.x[0:4]).T @ np.array([[0], [0], [GRAVITY]])
+
+        y = z - h
+
+        H_jaco = np.array([[-2*q2*GRAVITY, 2*q3*GRAVITY, -2*q0*GRAVITY, 2*q1*GRAVITY],
+                      [2*q1*GRAVITY, 2*q0*GRAVITY, 2*q3*GRAVITY, 2*q2*GRAVITY],
+                      [0, -4*q1*GRAVITY, -4*q2*GRAVITY, 0]])
+        H = np.hstack((H_jaco, np.zeros((3,12))))
+
+        S = H @ self.P @ H.T + self.R_accel
+        K = self.P @ H.T @ np.linalg.inv(S)
+        self.x = self.x + K @ y
+
+        I_KH = np.eye(16) - K @ H
+        self.P = I_KH @ self.P
+        
+        self.x[0:4] = self.x[0:4] / np.linalg.norm(self.x[0:4])
+    
+    
+    def update_heading_gps(self, gps_data):
+        """
+        Update EKF avec heading GPS (correction yaw uniquement).
+        
+        Args:
+            gps_data: dict avec 'velocity' [vx, vy, vz] en NED
+        """
+        if not self.isInitialized:
+            return
+        
+        v_gps = gps_data['velocity']
+        
+        
+        # 3. Calculer heading GPS depuis vecteur vitesse
+        z_heading = np.arctan2(v_gps[1], v_gps[0])
+        z_heading = z_heading.reshape((1, 1))
+        
+        # 4. Calculer heading prédit depuis quaternion
+        q = self.x[0:4]
+        q0, q1, q2, q3 = q.flatten()
+        
+        h_heading = np.arctan2(
+            2 * (q0*q3 + q1*q2),
+            (q0**2 + q1**2 - q2**2 - q3**2) #phillips et al. 2001
+        )
+        h_heading = np.array([[h_heading]]) 
+        
+        # 5. Innovation avec wrap-around
+        y = z_heading - h_heading
+        
+        if y > np.pi:
+            y -= 2 * np.pi
+        elif y < -np.pi:
+            y += 2 * np.pi
+        
+        # 6. Jacobienne H (1×16)
+        num = 2 * (q0*q3 + q1*q2)
+        den = q0**2 + q1**2 - q2**2 - q3**2
+        
+        # Dérivée de arctan2(num, den) = (den*∂num - num*∂den) / (num² + den²)
+        denom = num**2 + den**2
+        
+        # ∂num/∂q
+        dnum_dq0 = 2*q3
+        dnum_dq1 = 2*q2
+        dnum_dq2 = 2*q1
+        dnum_dq3 = 2*q0
+        
+        # ∂den/∂q
+        dden_dq0 = 2*q0
+        dden_dq1 = 2*q1
+        dden_dq2 = -2*q2
+        dden_dq3 = -2*q3
+        
+        # ∂yaw/∂q
+        dyaw_dq0 = (den * dnum_dq0 - num * dden_dq0) / denom
+        dyaw_dq1 = (den * dnum_dq1 - num * dden_dq1) / denom
+        dyaw_dq2 = (den * dnum_dq2 - num * dden_dq2) / denom
+        dyaw_dq3 = (den * dnum_dq3 - num * dden_dq3) / denom
+        
+        H = np.zeros((1, 16))
+        H[0, 0] = dyaw_dq0
+        H[0, 1] = dyaw_dq1
+        H[0, 2] = dyaw_dq2
+        H[0, 3] = dyaw_dq3
+        
+        # 8. Innovation covariance
+        S = H @ self.P @ H.T + self.R_heading
+        
+        # 9. Gain de Kalman
+        K = self.P @ H.T @ np.linalg.inv(S)
+        
+        # 10. Update état
+        self.x = self.x + K @ y
+        
+        # 11. Update covariance
+        I_KH = np.eye(16) - K @ H
+        self.P = I_KH @ self.P
+        
+        # 12. Normaliser quaternion
         self.x[0:4] = self.x[0:4] / np.linalg.norm(self.x[0:4])
