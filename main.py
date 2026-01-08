@@ -65,7 +65,7 @@ def main():
             last_time = current_time
             
             # ✅ CORRECTION : Créer des arrays 1D (shape (3,))
-            accel = np.array([-data['ax'], data['ay'], data['az']])  # (3,)
+            accel = np.array([data['ax'], -data['ay'], -data['az']])  # (3,)
             gyro = np.array([data['gx'], data['gy'], data['gz']])      # (3,)
             mag = np.array([data['mx'], data['my'], data['mz']])       # (3,)
             
