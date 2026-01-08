@@ -13,7 +13,13 @@ def main():
     rr.connect_grpc(url=f"rerun+http://{PC_IP}:9876/proxy")
     print("✅ Connecté!")
     
-    rr.log("world", rr.ViewCoordinates.RUB, static=True)
+    rr.log(
+    "world",
+    rr.ViewCoordinates(
+        xyz=rr.components.ViewCoordinates.RDF  # Right=East, Down=Down, Forward=North
+    ),
+    static=True
+    )
     rr.log("world/glider/mesh",rr.Asset3D(path="./mesh/planeur.glb"),static=True)
     # === LOGS TÉLÉMÉTRIE ===
     rr.log("telemetry/velocity_norm", rr.SeriesLines(colors=[[255, 0, 0]], names=["Velocity (m/s)"]), static=True)
