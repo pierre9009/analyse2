@@ -52,9 +52,11 @@ def main():
             # ✅ Définir timeline pour la navigation
             rr.set_time("step", sequence=step)
             step += 1
-            
+            time1=time.time()
             ekf.predict(imu_data, dt)
             ekf.update(imu_data, gps_data=None, phase="glide")
+            time2=time.time()
+            print(time2-time1)
             
             log_to_rerun(ekf, data)
 
