@@ -12,8 +12,8 @@ def main():
     
     print(f"📡 Tentative de connexion à {PC_IP}:9876...")
     
-    # Utiliser connect_grpc
-    rr.connect_grpc(addr=f"{PC_IP}:9876")
+    # CORRECTION : format URL correct avec /proxy
+    rr.connect_grpc(url=f"rerun+http://{PC_IP}:9876/proxy")
     
     print("✅ Connecté!")
     
