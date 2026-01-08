@@ -15,18 +15,18 @@ def main():
     
     rr.log("world", rr.ViewCoordinates.RUB, static=True)
 
-    rr.log("telemetry/velocity_norm", rr.SeriesLine(name="Velocity (m/s)", color=[255, 0, 0]), static=True)
-    rr.log("telemetry/altitude", rr.SeriesLine(name="Altitude (m)", color=[0, 255, 0]), static=True)
-    
-    rr.log("debug/bias/gyro_x", rr.SeriesLine(name="Bias Gyro X", color=[255, 100, 0]), static=True)
-    rr.log("debug/bias/gyro_y", rr.SeriesLine(name="Bias Gyro Y", color=[255, 150, 0]), static=True)
-    rr.log("debug/bias/gyro_z", rr.SeriesLine(name="Bias Gyro Z", color=[255, 200, 0]), static=True)
+    rr.log("telemetry/velocity_norm", rr.SeriesLines(name="Velocity (m/s)", color=[255, 0, 0]), static=True)
+    rr.log("telemetry/altitude", rr.SeriesLines(name="Altitude (m)", color=[0, 255, 0]), static=True)
 
-    rr.log("debug/bias/accel_x", rr.SeriesLine(name="Bias Gyro X", color=[255, 100, 0]), static=True)
-    rr.log("debug/bias/accel_y", rr.SeriesLine(name="Bias Gyro Y", color=[255, 150, 0]), static=True)
-    rr.log("debug/bias/accel_z", rr.SeriesLine(name="Bias Gyro Z", color=[255, 200, 0]), static=True)
+    rr.log("debug/bias/gyro_x", rr.SeriesLines(name="Bias Gyro X", color=[255, 100, 0]), static=True)
+    rr.log("debug/bias/gyro_y", rr.SeriesLines(name="Bias Gyro Y", color=[255, 150, 0]), static=True)
+    rr.log("debug/bias/gyro_z", rr.SeriesLines(name="Bias Gyro Z", color=[255, 200, 0]), static=True)
 
-    rr.log("debug/accel_raw_norm", rr.SeriesLine(name="Accel Norm", color=[0, 200, 255]), static=True)
+    rr.log("debug/bias/accel_x", rr.SeriesLines(name="Bias Gyro X", color=[255, 100, 0]), static=True)
+    rr.log("debug/bias/accel_y", rr.SeriesLines(name="Bias Gyro Y", color=[255, 150, 0]), static=True)
+    rr.log("debug/bias/accel_z", rr.SeriesLines(name="Bias Gyro Z", color=[255, 200, 0]), static=True)
+
+    rr.log("debug/accel_raw_norm", rr.SeriesLines(name="Accel Norm", color=[0, 200, 255]), static=True)
     
     imu = ImuReader(port="/dev/ttyS0", baudrate=115200)
     ekf = EKF(initialization_duration=5.0, sample_rate=100)
