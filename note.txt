@@ -1,0 +1,3 @@
+yaw qui part en couille
+tuner les matrices pour meilleurs estimation cad plus smooth/tej plus de bruit (methode ?)
+revoir les quaternions et l'orientation

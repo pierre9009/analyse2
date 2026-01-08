@@ -106,7 +106,7 @@ def log_to_rerun(ekf, raw_data):
     roll, pitch, yaw = quaternion_to_euler(q)
     
     # === 1. VISUALISATION 3D ===
-    rr_quat = rr.Quaternion(xyzw=[-q[1], -q[2], -q[3], q[0]])
+    rr_quat = rr.Quaternion(xyzw=[q[1], q[2], q[3], q[0]])
     rr.log("world/glider", rr.Transform3D(translation=pos, rotation=rr_quat))
     rr.log("world/glider/body", rr.Boxes3D(half_sizes=[0.5, 0.2, 0.05], colors=[0, 255, 0]))
     
