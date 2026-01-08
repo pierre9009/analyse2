@@ -1,0 +1,17 @@
+Sequence test (repere data sheet)
+
+10s a plat
+10s X vers le sol
+10s X vers le ciel
+10s Y vers el ciel
+10s Y vers le sol
+10s a l'envers
+
+rotation yaw lente 360 deg
+rotation yaw rapide 360 deg
+
+rotation X lente horaire 360
+rotation X rapide horaire 360
+
+rotation Y lente horaire 360
+rotation Y rapide horaire 360
