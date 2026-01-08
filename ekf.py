@@ -162,8 +162,8 @@ class EKF:
         b_gyro = self.x[10:13]
         b_accel = self.x[13:16]
 
-        omega_meas = imu_data['gyro']
-        accel_meas = imu_data['accel']
+        omega_meas = np.array(imu_data['gyro']).reshape((3,1))
+        accel_meas = imu_data['accel'].reshape((3,1))
 
         omega = omega_meas - b_gyro
         accel_body = accel_meas - b_accel
