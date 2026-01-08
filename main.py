@@ -33,7 +33,6 @@ def main():
             data = imu.read(timeout=0.1)
             if data is None:
                 continue
-            
             current_time = time.time()
             dt = current_time - last_time
             last_time = current_time
@@ -47,7 +46,7 @@ def main():
             if not ekf.isInitialized:
                 progress = ekf.compute_initial_state(imu_data)
                 if progress is not None:
-                    rr.log("debug/calib_progress", rr.Scalar(progress * 100))
+                    rr.log("debug/calib_progress", rr.Scalars(progress * 100))
                 continue
             
             ekf.predict(imu_data, dt)
@@ -79,14 +78,14 @@ def log_to_rerun(ekf, raw_data):
         rr.Boxes3D(half_sizes=[0.5, 0.2, 0.05], colors=[0, 255, 0])
     )
     
-    rr.log("telemetry/velocity_norm", rr.Scalar(np.linalg.norm(vel)))
-    rr.log("telemetry/altitude", rr.Scalar(pos[2]))
+    rr.log("telemetry/velocity_norm", rr.Scalars(np.linalg.norm(vel)))
+    rr.log("telemetry/altitude", rr.Scalars(pos[2]))
     
-    rr.log("debug/bias/gyro_x", rr.Scalar(bg[0]))
-    rr.log("debug/bias/gyro_y", rr.Scalar(bg[1]))
-    rr.log("debug/bias/gyro_z", rr.Scalar(bg[2]))
+    rr.log("debug/bias/gyro_x", rr.Scalars(bg[0]))
+    rr.log("debug/bias/gyro_y", rr.Scalars(bg[1]))
+    rr.log("debug/bias/gyro_z", rr.Scalars(bg[2]))
     
-    rr.log("debug/accel_raw_norm", rr.Scalar(np.linalg.norm([raw_data['ax'], raw_data['ay'], raw_data['az']])))
+    rr.log("debug/accel_raw_norm", rr.Scalars(np.linalg.norm([raw_data['ax'], raw_data['ay'], raw_data['az']])))
 
 if __name__ == "__main__":
     main()
