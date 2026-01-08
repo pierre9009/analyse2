@@ -15,18 +15,18 @@ def main():
     
     rr.log("world", rr.ViewCoordinates.RUB, static=True)
 
-    rr.log("telemetry/velocity_norm", rr.SeriesLines(names="Velocity (m/s)", colors=[255, 0, 0]), static=True)
-    rr.log("telemetry/altitude", rr.SeriesLines(names="Altitude (m)", colors=[0, 255, 0]), static=True)
+    rr.log("telemetry/velocity_norm", rr.SeriesLines(colors=[[255, 0, 0]], names=["Velocity (m/s)"]), static=True)
+    rr.log("telemetry/altitude", rr.SeriesLines(colors=[[0, 255, 0]], names=["Altitude (m)"]), static=True)
 
-    rr.log("debug/bias/gyro_x", rr.SeriesLines(names="Bias Gyro X", colors=[255, 100, 0]), static=True)
-    rr.log("debug/bias/gyro_y", rr.SeriesLines(names="Bias Gyro Y", colors=[255, 150, 0]), static=True)
-    rr.log("debug/bias/gyro_z", rr.SeriesLines(names="Bias Gyro Z", colors=[255, 200, 0]), static=True)
+    rr.log("debug/bias/gyro_x", rr.SeriesLines(colors=[[255, 100, 0]], names=["Bias Gyro X"]), static=True)
+    rr.log("debug/bias/gyro_y", rr.SeriesLines(colors=[[255, 150, 0]], names=["Bias Gyro Y"]), static=True)
+    rr.log("debug/bias/gyro_z", rr.SeriesLines(colors=[[255, 200, 0]], names=["Bias Gyro Z"]), static=True)
 
-    rr.log("debug/bias/accel_x", rr.SeriesLines(names="Bias Gyro X", colors=[255, 100, 0]), static=True)
-    rr.log("debug/bias/accel_y", rr.SeriesLines(names="Bias Gyro Y", colors=[255, 150, 0]), static=True)
-    rr.log("debug/bias/accel_z", rr.SeriesLines(names="Bias Gyro Z", colors=[255, 200, 0]), static=True)
+    rr.log("debug/bias/accel_x", rr.SeriesLines(colors=[[100, 255, 0]], names=["Bias Accel X"]), static=True)
+    rr.log("debug/bias/accel_y", rr.SeriesLines(colors=[[150, 255, 0]], names=["Bias Accel Y"]), static=True)
+    rr.log("debug/bias/accel_z", rr.SeriesLines(colors=[[200, 255, 0]], names=["Bias Accel Z"]), static=True)
 
-    rr.log("debug/accel_raw_norm", rr.SeriesLines(names="Accel Norm", colors=[0, 200, 255]), static=True)
+    rr.log("debug/accel_raw_norm", rr.SeriesLines(colors=[[0, 200, 255]], names=["Accel Norm"]), static=True)
     
     imu = ImuReader(port="/dev/ttyS0", baudrate=115200)
     ekf = EKF(initialization_duration=5.0, sample_rate=100)
