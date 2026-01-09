@@ -173,7 +173,7 @@ class EKF:
         accel_body = accel_meas - b_accel
 
         # === 2. CALCULER JACOBIENNE AVEC ÉTAT ACTUEL ===
-        F = Utils.compute_jacobian_F(q, omega, accel_body, b_accel, b_gyro, dt)
+        F = Utils.compute_jacobian_F(q, omega, accel_body, dt)
 
         # === 3. PROPAGER COVARIANCE (Standard EKF discret) ===
         self.P = F @ self.P @ F.T + self.Q
@@ -184,9 +184,7 @@ class EKF:
         dq = 0.5 * (Utils.skew_4x4(omega) @ q)
         q_new = q + dq * dt
         q_new = q_new / np.linalg.norm(q_new)
-        # Enforce quaternion sign continuity (q and -q represent same rotation)
-        if q_new[0, 0] < 0:
-            q_new = -q_new
+
 
         # 2. Propager vitesse
         R = Utils.quaternion_to_rotation_matrix(q) #body vers NED
@@ -258,11 +256,6 @@ class EKF:
             # 3. Glide phase (not ascent with low speed)
             if v_horizontal > 5.0 and abs(pitch) < np.radians(30) and phase == "glide":
                 self.update_heading_gps(gps_data)
-                gps_heading_used = True
-
-        # Fallback to magnetometer if GPS heading not used
-        if not gps_heading_used and imu_data is not None and 'mag' in imu_data:
-            self.update_heading_magnetometer(imu_data)
         
     def update_gps_position_velocity(self, gps_data):
         """
@@ -309,9 +302,7 @@ class EKF:
 
         # 9. Normaliser quaternion après update
         self.x[0:4] = self.x[0:4] / np.linalg.norm(self.x[0:4])
-        # Enforce quaternion sign continuity
-        if self.x[0, 0] < 0:
-            self.x[0:4] = -self.x[0:4]
+
 
 
     def update_accel_gravity(self, imu_data):
@@ -359,11 +350,6 @@ class EKF:
 
         I_KH = np.eye(16) - K @ H
         self.P = I_KH @ self.P
-
-        # Normalize quaternion and enforce continuity
-        self.x[0:4] = self.x[0:4] / np.linalg.norm(self.x[0:4])
-        if self.x[0, 0] < 0:
-            self.x[0:4] = -self.x[0:4]
     
     
     def update_heading_gps(self, gps_data):
@@ -447,104 +433,3 @@ class EKF:
 
         # 12. Normaliser quaternion
         self.x[0:4] = self.x[0:4] / np.linalg.norm(self.x[0:4])
-        # Enforce quaternion sign continuity
-        if self.x[0, 0] < 0:
-            self.x[0:4] = -self.x[0:4]
-
-    def update_heading_magnetometer(self, imu_data):
-        """
-        Update EKF yaw using magnetometer measurement (tilt-compensated).
-
-        This function computes heading from magnetometer after compensating
-        for roll and pitch using the current quaternion estimate.
-
-        Args:
-            imu_data: dict with 'mag' [mx, my, mz] in body frame
-        """
-        if not self.isInitialized:
-            return
-
-        if 'mag' not in imu_data:
-            return
-
-        mag = imu_data['mag']
-        mx, my, mz = mag[0], mag[1], mag[2]
-
-        # Get current attitude from quaternion
-        q = self.x[0:4]
-        q0, q1, q2, q3 = q.flatten()
-
-        # Extract roll and pitch for tilt compensation
-        roll, pitch, _ = Utils.quaternion_to_euler(q.flatten())
-
-        # Tilt compensation: rotate magnetometer to horizontal plane
-        cos_roll = np.cos(roll)
-        sin_roll = np.sin(roll)
-        cos_pitch = np.cos(pitch)
-        sin_pitch = np.sin(pitch)
-
-        # Magnetic field components in horizontal plane
-        mag_x_h = mx * cos_pitch + my * sin_roll * sin_pitch + mz * cos_roll * sin_pitch
-        mag_y_h = my * cos_roll - mz * sin_roll
-
-        # Compute heading from horizontal magnetic field
-        z_heading = np.arctan2(-mag_y_h, mag_x_h)
-        z_heading = np.array([[z_heading]])
-
-        # Predicted heading from quaternion (same as GPS heading)
-        h_heading = np.arctan2(
-            2 * (q0*q3 + q1*q2),
-            (q0**2 + q1**2 - q2**2 - q3**2)
-        )
-        h_heading = np.array([[h_heading]])
-
-        # Innovation with wrap-around
-        y = z_heading - h_heading
-        if y > np.pi:
-            y -= 2 * np.pi
-        elif y < -np.pi:
-            y += 2 * np.pi
-
-        # Jacobian H (1×16) - same as GPS heading
-        num = 2 * (q0*q3 + q1*q2)
-        den = q0**2 + q1**2 - q2**2 - q3**2
-        denom = num**2 + den**2
-
-        dnum_dq0 = 2*q3
-        dnum_dq1 = 2*q2
-        dnum_dq2 = 2*q1
-        dnum_dq3 = 2*q0
-
-        dden_dq0 = 2*q0
-        dden_dq1 = 2*q1
-        dden_dq2 = -2*q2
-        dden_dq3 = -2*q3
-
-        dyaw_dq0 = (den * dnum_dq0 - num * dden_dq0) / denom
-        dyaw_dq1 = (den * dnum_dq1 - num * dden_dq1) / denom
-        dyaw_dq2 = (den * dnum_dq2 - num * dden_dq2) / denom
-        dyaw_dq3 = (den * dnum_dq3 - num * dden_dq3) / denom
-
-        H = np.zeros((1, 16))
-        H[0, 0] = dyaw_dq0
-        H[0, 1] = dyaw_dq1
-        H[0, 2] = dyaw_dq2
-        H[0, 3] = dyaw_dq3
-
-        # Innovation covariance
-        S = H @ self.P @ H.T + self.R_heading_mag
-
-        # Kalman gain
-        K = self.P @ H.T @ np.linalg.inv(S)
-
-        # Update state
-        self.x = self.x + K @ y
-
-        # Update covariance
-        I_KH = np.eye(16) - K @ H
-        self.P = I_KH @ self.P
-
-        # Normalize quaternion and enforce continuity
-        self.x[0:4] = self.x[0:4] / np.linalg.norm(self.x[0:4])
-        if self.x[0, 0] < 0:
-            self.x[0:4] = -self.x[0:4]

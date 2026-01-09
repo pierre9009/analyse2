@@ -90,7 +90,7 @@ class Utils:
         
         return pitch
     
-    def compute_jacobian_F(q, omega, accel_body, biais_acc, biais_gyro, dt):
+    def compute_jacobian_F(q, omega, accel_body, dt):
         """
         Calcule la jacobienne 16x16 du modèle de prédiction.
         """

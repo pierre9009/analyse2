@@ -92,7 +92,7 @@ def main():
             ekf.predict(imu_data, dt)
             ekf.update(imu_data, gps_data=None, phase="glide")
             
-            if step%3 == 0:
+            if step%2 == 0:
                 log_to_rerun(ekf, data)
 
 
