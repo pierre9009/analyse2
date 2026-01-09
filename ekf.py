@@ -113,7 +113,7 @@ class EKF:
         # 2. Biais accéléro (moyenne - expected gravity reading)
         # At rest level: accel should read [0, 0, -g], difference is bias
         accel_mean = np.mean(accel_data, axis=0)
-        b_accel = accel_mean - np.array([0, 0, -GRAVITY])
+        b_accel = np.zeros((1,3))
         
         # 3. Quaternion initial (magnéto pour yaw, roll/pitch ≈ 0)
         # Must use same formula as update_heading_magnetometer: atan2(-my, mx)
