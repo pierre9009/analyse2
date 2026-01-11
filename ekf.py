@@ -32,6 +32,7 @@ class EKF:
         
         # Initialize state vector [q0, q1, q2, q3, px, py, pz, vx, vy, vz, bgx, bgy, bgz, bax, bay, baz]
         self.x = np.zeros((16, 1))
+        self._q_previous = None  # Pour continuité
         
         # 2. Covariance initiale (16, 16)
         self.P = np.diag([
@@ -57,8 +58,8 @@ class EKF:
         # 4. Bruits de mesure (multiples) (à ajuster selon datasheet)
         self.R_gps = np.diag([25, 25, 100, 0.25, 0.25, 0.64])
         self.R_accel = np.diag([0.5, 0.5, 0.5])
-        self.R_heading_gps = (5 * np.pi/180)**2   # GPS heading noise (~5 deg)
-        self.R_heading_mag = (10 * np.pi/180)**2  # Magnetometer heading noise (~10 deg)
+        self.R_heading_gps = (20 * np.pi/180)**2   # GPS heading noise (~5 deg)
+        self.R_heading_mag = (30 * np.pi/180)**2  # Magnetometer heading noise (~10 deg)
 
         declination_deg = 2.85
         inclination_deg = 61.16
@@ -150,6 +151,7 @@ class EKF:
         
         # Quaternion initial
         q_0 = Utils.quaternion_from_euler(roll_0, pitch_0, yaw_0)
+        self._enforce_quaternion_continuity()
         
         # ───────────────────────────────────────────────────────────
         # 3. BIAIS ACCÉLÉROMÈTRE
@@ -418,6 +420,7 @@ class EKF:
 
         # 9. Normaliser quaternion après update
         self.x[0:4] = self.x[0:4] / np.linalg.norm(self.x[0:4])
+        self._enforce_quaternion_continuity()
 
 
 
@@ -469,6 +472,8 @@ class EKF:
         assert K.shape == (16,3)
 
         self.x = self.x + K @ y
+        self.x[0:4] = self.x[0:4] / np.linalg.norm(self.x[0:4])
+        self._enforce_quaternion_continuity()
 
         I_KH = np.eye(16) - K @ H
         self.P = I_KH @ self.P
@@ -553,95 +558,83 @@ class EKF:
 
         # 12. Normaliser quaternion
         self.x[0:4] = self.x[0:4] / np.linalg.norm(self.x[0:4])
+        self._enforce_quaternion_continuity()
 
     def update_heading_mag(self, mag_meas):
-        """
-        Update EKF avec magnétomètre (correction yaw via champ magnétique).
-        Utilise le vecteur magnétique complet (3D) pour robustesse.
-        
-        Args:
-            mag_meas: mesure magnétomètre [mx, my, mz] en body frame (3,1)
-            mag_ref: champ magnétique de référence en NED [mx, 0, mz] (optionnel)
-                    Si None, utilise valeur par défaut Nord=[1,0,0] normalisé
-        """
         if not self.isInitialized:
             return
         
-        # 1. Normaliser la mesure magnétomètre
         mag_norm = np.linalg.norm(mag_meas)
         if mag_norm < 1e-6:
-            # print("⚠️ Mag update skipped: norm too small")
             return
         
-        mag_n = mag_meas / mag_norm  # Vecteur unitaire
+        mag_n = mag_meas / mag_norm
+        mag_ref_n = self.mag_ref / np.linalg.norm(self.mag_ref)
         
-        # 2. Référence magnétique NED (si non fournie, utiliser Nord magnétique)
-
-        mag_ref_n = self.mag_ref / np.linalg.norm(self.mag_ref)  # Normaliser
-        
-        # 3. Prédiction : transformer mag_ref de NED vers body
         q = self.x[0:4]
-        R = Utils.quaternion_to_rotation_matrix(q)  # Body → NED
-        R_T = R.T  # NED → Body
+        R = Utils.quaternion_to_rotation_matrix(q)
+        h = R.T @ mag_ref_n
+        h = h / np.linalg.norm(h)
         
-        h = R_T @ mag_ref_n  # Mesure attendue en body frame
-        h = h / np.linalg.norm(h)  # Normaliser (cohérent avec mag_n)
-        
-        # 4. Innovation (vecteur 3D)
         z = mag_n
         y = z - h
         
-        # 5. Jacobienne H = ∂h/∂q
-        # h = R^T @ mag_ref où R = R(q)
-        # ∂h/∂q = ∂(R^T @ mag_ref)/∂q
+        # ✅ JACOBIENNE PAR DIFFÉRENCES FINIES (correcte par construction)
+        q_flat = q.flatten()
+        epsilon = 1e-7
+        H_q = np.zeros((3, 4))
         
-        q0, q1, q2, q3 = q.flatten()
-        mx, my, mz = mag_ref_n.flatten()
-        
-        # Jacobienne analytique (dérivée de R^T @ mag_ref par rapport à q)
-        # Formule : ∂(R^T @ v)/∂q pour vecteur v constant
-        H_q = 2 * np.array([
-            # ∂h1/∂q (composante X body)
-            [ q0*mx + q3*my - q2*mz,  q1*mx + q2*my + q3*mz, 
-            -q2*mx + q1*my - q0*mz, -q3*mx + q0*my + q1*mz],
+        for i in range(4):
+            q_plus = q_flat.copy()
+            q_plus[i] += epsilon
+            q_plus = q_plus / np.linalg.norm(q_plus)
             
-            # ∂h2/∂q (composante Y body)
-            [-q3*mx + q0*my + q1*mz,  q2*mx - q1*my + q0*mz,
-            q1*mx + q2*my + q3*mz,  q0*mx + q3*my - q2*mz],
+            R_plus = Utils.quaternion_to_rotation_matrix(q_plus.reshape(4,1))
+            h_plus = R_plus.T @ mag_ref_n
+            h_plus = h_plus.flatten() / np.linalg.norm(h_plus)
             
-            # ∂h3/∂q (composante Z body)
-            [ q2*mx - q1*my + q0*mz,  q3*mx - q0*my - q1*mz,
-            q0*mx + q3*my - q2*mz,  q1*mx + q2*my + q3*mz]
-        ])
+            H_q[:, i] = (h_plus - h.flatten()) / epsilon
         
-        # Jacobienne complète H (3×16)
         H = np.zeros((3, 16))
-        H[:, 0:4] = H_q  # Seulement quaternion est affecté
+        H[:, 0:4] = H_q
         
-        # 6. Covariances
-        S = H @ self.P @ H.T + np.diag([self.R_heading_mag, self.R_heading_mag, self.R_heading_mag])
+        # ✅ GATING STRICT sur innovation
+        innovation_norm = np.linalg.norm(y)
+        if innovation_norm > 0.3:  # Réduit de 0.5 à 0.3 (≈17° max)
+            print(f"⚠️ Mag innovation: {np.rad2deg(innovation_norm):.1f}° > 17° → skip")
+            return
         
-        # 7. Gain de Kalman
+        S = H @ self.P @ H.T + np.diag([self.R_heading_mag]*3)
+        
         try:
             K = self.P @ H.T @ np.linalg.inv(S)
         except np.linalg.LinAlgError:
-            # print("⚠️ Mag update skipped: S singular")
             return
         
-        assert K.shape == (16, 3), f"K shape error: {K.shape}"
+        # ✅ SATURER LE GAIN (éviter corrections brutales)
+        K_max = 0.1  # Limiter l'agressivité
+        K[0:4, :] = np.clip(K[0:4, :], -K_max, K_max)
         
-        # 8. Gating sur innovation (rejeter mesures aberrantes)
-        innovation_norm = np.linalg.norm(y)
-        if innovation_norm > 0.5:  # Seuil : 0.5 pour vecteurs normalisés ≈ 30°
-            # print(f"⚠️ Mag innovation too large: {innovation_norm:.3f}")
-            return
-        
-        # 9. Update état
         self.x = self.x + K @ y
-        
-        # 10. Normaliser quaternion immédiatement
         self.x[0:4] = self.x[0:4] / np.linalg.norm(self.x[0:4])
+        self._enforce_quaternion_continuity()
         
-        # 11. Update covariance (forme de Joseph pour stabilité)
+        # Joseph form
         I_KH = np.eye(16) - K @ H
         self.P = I_KH @ self.P @ I_KH.T + K @ np.diag([self.R_heading_mag]*3) @ K.T
+
+
+    def _enforce_quaternion_continuity(self):
+        """Force quaternion à rester dans le même hémisphère (q ≡ -q)."""
+        q_current = self.x[0:4].flatten()
+        
+        if self._q_previous is None:
+            self._q_previous = q_current.copy()
+            return
+        
+        # Si dot < 0, on est dans l'hémisphère opposé
+        if np.dot(q_current, self._q_previous) < 0:
+            self.x[0:4] = -self.x[0:4]
+            q_current = -q_current
+        
+        self._q_previous = q_current.copy()
