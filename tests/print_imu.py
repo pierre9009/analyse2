@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import time
-from imu_api import ImuReader
+from ekf.imu_api import ImuReader
 
 def main():
     print("Lecture IMU...")

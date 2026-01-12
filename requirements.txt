@@ -1,3 +1,4 @@
 pyserial
 numpy
 rerun-sdk
+pyyaml

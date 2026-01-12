@@ -1,12 +1,17 @@
 import time
 import numpy as np
 import rerun as rr
-from ekf import EKF
-from imu_api import ImuReader
-from utils import Utils
+from ekf.ekf import EKF
+from ekf.imu_api import ImuReader
+from ekf.utils import Utils
+import yaml
+
+with open("config.yaml", "r") as file:
+    config = yaml.safe_load(file)
 
 def main():
-    PC_IP = "192.168.1.144"
+    #windows(cmd): ipconfig ,linux: ifconfig
+    PC_IP = config['network']['IP']
     
     rr.init("Glider_INS_Remote", spawn=False)
     
