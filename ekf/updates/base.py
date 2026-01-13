@@ -16,7 +16,7 @@ class UpdateBase(ABC):
     - get_measurement_noise(): returns R matrix
     """
 
-    def __init__(self, state_dim=19):
+    def __init__(self, state_dim=16):
         self.state_dim = state_dim
 
     @abstractmethod
@@ -25,7 +25,7 @@ class UpdateBase(ABC):
         Compute the innovation vector y = z - h(x).
 
         Args:
-            x: State vector (19x1)
+            x: State vector (16x1)
             measurement: Measurement data (format depends on update type)
 
         Returns:
@@ -39,7 +39,7 @@ class UpdateBase(ABC):
         Compute the measurement Jacobian H = dh/dx.
 
         Args:
-            x: State vector (19x1)
+            x: State vector (16x1)
             measurement: Optional measurement data (some updates need it)
 
         Returns:
@@ -72,7 +72,7 @@ class UpdateBase(ABC):
         Override in subclasses for specific validation logic.
 
         Args:
-            x: State vector (19x1)
+            x: State vector (16x1)
             measurement: Measurement data
 
         Returns:
@@ -85,7 +85,7 @@ class UpdateBase(ABC):
         Prepare all data needed for Kalman update.
 
         Args:
-            x: State vector (19x1)
+            x: State vector (16x1)
             measurement: Measurement data
 
         Returns:

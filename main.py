@@ -15,9 +15,9 @@ def main():
     
     rr.init("Glider_INS_Remote", spawn=False)
     
-    print(f"📡 Tentative de connexion à {PC_IP}:9876...")
+    print(f"Tentative de connexion à {PC_IP}:9876...")
     rr.connect_grpc(url=f"rerun+http://{PC_IP}:9876/proxy")
-    print("✅ Connecté!")
+    print("Connecté!")
     
     rr.log(
         "world",
@@ -45,12 +45,6 @@ def main():
     rr.log("debug/bias/accel_x", rr.SeriesLines(colors=[[100, 255, 0]], names=["Bias Accel X"]), static=True)
     rr.log("debug/bias/accel_y", rr.SeriesLines(colors=[[150, 255, 0]], names=["Bias Accel Y"]), static=True)
     rr.log("debug/bias/accel_z", rr.SeriesLines(colors=[[200, 255, 0]], names=["Bias Accel Z"]), static=True)
-
-    rr.log("debug/bias/B_NED_x", rr.SeriesLines(colors=[[100, 255, 0]], names=["mag X"]), static=True)
-    rr.log("debug/bias/B_NED_y", rr.SeriesLines(colors=[[150, 255, 0]], names=["mag Y"]), static=True)
-    rr.log("debug/bias/B_NED_z", rr.SeriesLines(colors=[[200, 255, 0]], names=["mag Z"]), static=True)
-    rr.log("debug/bias/B_NED_norm", rr.SeriesLines(colors=[[200, 255, 0]], names=["Bias mag norm"]), static=True)
-
 
     # === LOGS INCERTITUDES ===
     rr.log("debug/uncertainty/position", rr.SeriesLines(colors=[[255, 0, 255]], names=["Pos σ (m)"]), static=True)
@@ -85,7 +79,7 @@ def main():
         'total': []
     }
     
-    print("🚀 Démarrage du système...")
+    print("Démarrage du système...")
     
     with imu:
         while True:
@@ -97,16 +91,14 @@ def main():
             
             current_time = time.time()
             
-            # ✅ Gérer premier passage
             if last_time is None:
                 last_time = current_time
                 continue
             
             dt = current_time - last_time
             
-            # ✅ Safety check dt
             if dt > 0.05 or dt < 0.001:  # Hors plage 20-1000 Hz
-                print(f"⚠️ dt anormal: {dt*1000:.1f}ms")
+                print(f"dt anormal: {dt*1000:.1f}ms")
                 last_time = current_time
                 continue
             
@@ -115,11 +107,10 @@ def main():
             # ═══════════════════════════════════════════════════
             # MAPPING CAPTEURS
             # ═══════════════════════════════════════════════════
-            accel = np.array([data['ax'], -data['ay'], -data['az']])
+            accel = np.array([data['ax'], -data['ay'], -data['az']])    #see datasheet ICM 20948 page 83
             gyro = np.array([data['gx'], -data['gy'], -data['gz']])
-            mag = np.array([data['mx'], data['my'], data['mz']])
             
-            imu_data = {'accel': accel, 'gyro': gyro, 'mag': mag}
+            imu_data = {'accel': accel, 'gyro': gyro}
             
             # ═══════════════════════════════════════════════════
             # CALIBRATION
@@ -168,7 +159,7 @@ def main():
             
             # Affichage périodique
             if step % 1000 == 0:
-                print(f"\n📊 Performance Stats (dernières 1000 itérations):")
+                print(f"\n Performance Stats (dernières 1000 itérations):")
                 print(f"   dt:      {np.mean(timing_stats['dt']):.2f} ± {np.std(timing_stats['dt']):.2f} ms")
                 print(f"   Predict: {np.mean(timing_stats['predict']):.2f} ± {np.std(timing_stats['predict']):.2f} ms")
                 print(f"   Update:  {np.mean(timing_stats['update']):.2f} ± {np.std(timing_stats['update']):.2f} ms")
@@ -215,12 +206,6 @@ def log_to_rerun(ekf, raw_data, dt, t_predict, t_update):
     rr.log("debug/bias/accel_x", rr.Scalars([float(ba[0])]))
     rr.log("debug/bias/accel_y", rr.Scalars([float(ba[1])]))
     rr.log("debug/bias/accel_z", rr.Scalars([float(ba[2])]))
-    B_NED = ekf.x[16:19].flatten()
-
-    rr.log("debug/mag/B_NED_x", rr.Scalars([float(B_NED[0])]))
-    rr.log("debug/mag/B_NED_y", rr.Scalars([float(B_NED[1])]))
-    rr.log("debug/mag/B_NED_z", rr.Scalars([float(B_NED[2])]))
-    rr.log("debug/mag/B_NED_norm", rr.Scalars([float(np.linalg.norm(B_NED))]))
     
     # === 5. INCERTITUDES ===
     pos_var = np.diag(ekf.P[4:7, 4:7])

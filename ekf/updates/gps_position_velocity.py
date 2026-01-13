@@ -15,7 +15,7 @@ class GPSPositionVelocityUpdate(UpdateBase):
     """
 
     def __init__(self, R_position=None, R_velocity=None):
-        super().__init__(state_dim=19)
+        super().__init__(state_dim=16)
 
         # Default measurement noise covariances
         if R_position is None:
@@ -30,7 +30,7 @@ class GPSPositionVelocityUpdate(UpdateBase):
         Compute innovation for GPS position + velocity.
 
         Args:
-            x: State vector (19x1)
+            x: State vector (16x1)
             measurement: dict with 'position' (3x1) and 'velocity' (3x1)
 
         Returns:
@@ -59,11 +59,11 @@ class GPSPositionVelocityUpdate(UpdateBase):
         H is constant: identity blocks at position and velocity indices.
 
         Args:
-            x: State vector (19x1)
+            x: State vector (16x1)
             measurement: Not used for this update
 
         Returns:
-            np.ndarray: H matrix (6x19)
+            np.ndarray: H matrix (6x16)
         """
         H = np.zeros((6, self.state_dim))
         H[0:3, 4:7] = np.eye(3)   # dh_position/d_position = I

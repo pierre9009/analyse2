@@ -1,21 +1,9 @@
-"""
-Extended Kalman Filter (EKF) for quaternion-based orientation estimation.
-
-This module provides the main EKF class that orchestrates:
-- State initialization (calibration)
-- State prediction (IMU propagation)
-- State updates (GPS, accelerometer, magnetometer)
-
-Each update type is handled by a dedicated class in the updates/ module.
-"""
-
 import numpy as np
 from ekf.utils import Utils
 from ekf.updates import (
     GPSPositionVelocityUpdate,
     AccelGravityUpdate,
     HeadingGPSUpdate,
-    HeadingMagUpdate
 )
 
 GRAVITY = 9.81
@@ -25,15 +13,14 @@ class EKF:
     """
     Extended Kalman Filter for navigation.
 
-    State vector: [q(4), p(3), v(3), b_gyro(3), b_accel(3), B_NED(3)]
-    Total: 19 states
+    State vector: [q(4), p(3), v(3), b_gyro(3), b_accel(3)]
+    Total: 16 states
 
     - q: Quaternion [w, x, y, z] for orientation
     - p: Position in NED frame
     - v: Velocity in NED frame
     - b_gyro: Gyroscope bias
     - b_accel: Accelerometer bias
-    - B_NED: Local magnetic field vector (estimated)
     """
 
     def __init__(self, initialization_duration=30.0, sample_rate=100):
@@ -41,43 +28,28 @@ class EKF:
         self.n_samples_needed = int(initialization_duration * sample_rate)
         self._calib_gyro = []
         self._calib_accel = []
-        self._calib_mag = []
         self._calib_gps = []
 
-        # State vector (19x1)
-        self.x = np.zeros((19, 1))
+        # State vector (16x1)
+        self.x = np.zeros((16, 1))
 
-        # Covariance matrix (19x19)
+        # Covariance matrix (16x16)
         self.P = np.diag([
             0.01, 0.01, 0.01, 0.01,     # quaternion
             25, 25, 100,                 # position
             0.01, 0.01, 0.01,            # velocity
             1e-4, 1e-4, 1e-4,            # gyro bias
             2.5e-3, 2.5e-3, 2.5e-3,      # accel bias
-            0.01, 0.01, 0.01             # B_NED
         ])
 
-        # Process noise (19x19)
+        # Process noise (16x16)
         self.Q = np.diag([
             1e-5, 1e-5, 1e-5, 1e-5,      # quaternion
             1e-2, 1e-2, 1e-2,            # position
             5e-3, 5e-3, 5e-3,            # velocity
             1e-7, 1e-7, 1e-7,            # gyro bias
             1e-8, 1e-8, 1e-8,            # accel bias
-            1e-10, 1e-10, 1e-10          # B_NED
         ])
-
-        # Initial magnetic field reference (will be refined by filter)
-        declination_deg = 2.85
-        inclination_deg = 61.16
-        D = np.radians(declination_deg)
-        I = np.radians(inclination_deg)
-
-        self.mag_ref_init = np.array([
-            np.cos(I) * np.cos(D),
-            np.cos(I) * np.sin(D),
-            np.sin(I)
-        ]).reshape((3, 1))
 
         # For quaternion continuity
         self._q_previous = None
@@ -86,15 +58,14 @@ class EKF:
         self._gps_update = GPSPositionVelocityUpdate()
         self._accel_update = AccelGravityUpdate()
         self._heading_gps_update = HeadingGPSUpdate()
-        self._heading_mag_update = HeadingMagUpdate()
 
     def compute_initial_state(self, imu_data, gps_data=None):
         """
         Accumulate samples for calibration then initialize state.
-        Estimates initial roll/pitch/yaw AND biases even if glider is tilted.
+        Estimates initial roll/pitch AND biases.
 
         Args:
-            imu_data: dict with keys 'gyro' [gx,gy,gz], 'accel' [ax,ay,az], 'mag' [mx,my,mz]
+            imu_data: dict with keys 'gyro' [gx,gy,gz], 'accel' [ax,ay,az]
             gps_data: optional dict with key 'position' [px,py,pz]
 
         Returns:
@@ -106,12 +77,11 @@ class EKF:
         # Show message on first call
         if len(self._calib_gyro) == 0:
             print("Calibration starting (30s)...")
-            print("   Do not move the glider!")
+            print("Do not move the glider!")
 
         # Accumulate samples
         self._calib_gyro.append(imu_data['gyro'])
         self._calib_accel.append(imu_data['accel'])
-        self._calib_mag.append(imu_data['mag'])
 
         if gps_data is not None and 'position' in gps_data:
             self._calib_gps.append(gps_data['position'])
@@ -126,7 +96,6 @@ class EKF:
 
         gyro_data = np.array(self._calib_gyro)
         accel_data = np.array(self._calib_accel)
-        mag_data = np.array(self._calib_mag)
 
         # Check for movement during calibration
         gyro_std = np.std(gyro_data, axis=0)
@@ -140,9 +109,8 @@ class EKF:
         # 1. GYRO BIAS (simple mean)
         b_gyro = np.mean(gyro_data, axis=0)
 
-        # 2. INITIAL ORIENTATION from accelerometer + magnetometer
+        # 2. INITIAL ORIENTATION from accelerometer
         accel_mean = np.mean(accel_data, axis=0)
-        mag_mean = np.mean(mag_data, axis=0)
 
         # Roll and Pitch from accelerometer (assumes stationary)
         gx, gy, gz = -accel_mean
@@ -151,15 +119,8 @@ class EKF:
         roll_0 = np.arctan2(ay, az)
         pitch_0 = np.arctan2(-ax, np.sqrt(ay**2 + az**2))
 
-        # Yaw from magnetometer with tilt compensation
-        mx, my, mz = mag_mean
-
-        mag_x_comp = mx * np.cos(pitch_0) + mz * np.sin(pitch_0)
-        mag_y_comp = (mx * np.sin(roll_0) * np.sin(pitch_0) +
-                     my * np.cos(roll_0) -
-                     mz * np.sin(roll_0) * np.cos(pitch_0))
-
-        yaw_0 = np.arctan2(-mag_y_comp, mag_x_comp)
+        # Yaw init at 0 deg (no reference will be updated via gps)
+        yaw_0 = 0
 
         # Initial quaternion
         q_0 = Utils.quaternion_from_euler(roll_0, pitch_0, yaw_0)
@@ -180,18 +141,14 @@ class EKF:
             p_0 = np.zeros(3)
             print("   Warning: No GPS during calibration, position = [0,0,0]")
 
-        # 5. INITIALIZE B_NED
-        B_NED_0 = self.mag_ref_init
-
-        # 6. BUILD STATE VECTOR
+        # 5. BUILD STATE VECTOR
         self.x = np.array([
             q_0[0], q_0[1], q_0[2], q_0[3],       # quaternion (4)
             p_0[0], p_0[1], p_0[2],               # position (3)
             0, 0, 0,                               # velocity (3)
             b_gyro[0], b_gyro[1], b_gyro[2],      # gyro bias (3)
             b_accel[0], b_accel[1], b_accel[2],   # accel bias (3)
-            B_NED_0[0, 0], B_NED_0[1, 0], B_NED_0[2, 0]  # B_NED (3)
-        ]).reshape((19, 1))
+        ]).reshape((16, 1))
 
         self.isInitialized = True
 
@@ -203,7 +160,6 @@ class EKF:
         print(f"      Yaw:   {np.rad2deg(yaw_0):+7.2f} deg")
         print(f"   Gyro bias:  [{b_gyro[0]:+.4f}, {b_gyro[1]:+.4f}, {b_gyro[2]:+.4f}] rad/s")
         print(f"   Accel bias: [{b_accel[0]:+.3f}, {b_accel[1]:+.3f}, {b_accel[2]:+.3f}] m/s^2")
-        print(f"   B_NED init: [{B_NED_0[0, 0]:+.3f}, {B_NED_0[1, 0]:+.3f}, {B_NED_0[2, 0]:+.3f}]")
         print(f"   Position:   [{p_0[0]:.2f}, {p_0[1]:.2f}, {p_0[2]:.2f}] m")
 
         return None
@@ -222,7 +178,6 @@ class EKF:
         v = self.x[7:10]
         b_gyro = self.x[10:13]
         b_accel = self.x[13:16]
-        B_NED = self.x[16:19]
 
         accel_meas = np.array(imu_data['accel']).reshape((3, 1))
         omega_meas = np.array(imu_data['gyro']).reshape((3, 1))
@@ -230,8 +185,8 @@ class EKF:
         omega_body = omega_meas - b_gyro
         accel_body = accel_meas - b_accel
 
-        # Compute Jacobian (19x19)
-        F = Utils.compute_jacobian_F_extended(q, omega_body, accel_body, dt)
+        # Compute Jacobian (16x16)
+        F = Utils.compute_jacobian_F(q, omega_body, accel_body, dt)
 
         # Propagate covariance
         self.P = F @ self.P @ F.T + self.Q
@@ -255,11 +210,9 @@ class EKF:
         # Biases remain constant
         b_gyro_new = b_gyro
         b_accel_new = b_accel
-        B_NED_new = B_NED
 
-        self.x = np.vstack([q_new, p_new, v_new, b_gyro_new, b_accel_new, B_NED_new])
-
-        # Enforce quaternion continuity
+        self.x = np.vstack([q_new, p_new, v_new, b_gyro_new, b_accel_new])
+        self.lock_yaw()
         self._enforce_quaternion_continuity()
 
     def update(self, imu_data, gps_data=None, phase="glide"):
@@ -267,7 +220,7 @@ class EKF:
         Apply measurement updates based on available data and flight phase.
 
         Args:
-            imu_data: dict with 'accel', 'gyro', 'mag'
+            imu_data: dict with 'accel', 'gyro'
             gps_data: optional dict with 'position' and 'velocity'
             phase: flight phase ("ascension", "drop", "glide")
         """
@@ -280,6 +233,7 @@ class EKF:
             self._update_drop(imu_data, gps_data)
         elif phase == "glide":
             self._update_glide(imu_data, gps_data)
+            self.lock_yaw()
 
     def _update_ascension(self, imu_data, gps_data):
         """Update sequence for ascension phase."""
@@ -296,11 +250,6 @@ class EKF:
             accel_meas = np.array(imu_data['accel']).reshape((3, 1))
             self._apply_update(self._accel_update, accel_meas)
 
-        # Magnetometer heading
-        if imu_data is not None and 'mag' in imu_data:
-            mag = np.array(imu_data['mag']).reshape((3, 1))
-            self._apply_update(self._heading_mag_update, mag)
-
     def _update_drop(self, imu_data, gps_data):
         """Update sequence for drop phase (priority on roll/pitch)."""
         # Accelerometer gravity (priority for roll/pitch)
@@ -315,11 +264,6 @@ class EKF:
                 'velocity': np.array(gps_data['velocity']).reshape((3, 1))
             }
             self._apply_update(self._gps_update, measurement)
-
-        # Magnetometer heading
-        if imu_data is not None and 'mag' in imu_data:
-            mag = np.array(imu_data['mag']).reshape((3, 1))
-            self._apply_update(self._heading_mag_update, mag)
 
     def _update_glide(self, imu_data, gps_data):
         """Update sequence for glide phase."""
@@ -336,26 +280,18 @@ class EKF:
             accel_meas = np.array(imu_data['accel']).reshape((3, 1))
             self._apply_update(self._accel_update, accel_meas)
 
-        # Heading: GPS if moving fast, else magnetometer
+        # Heading: GPS if moving fast
         if gps_data is not None and 'velocity' in gps_data:
             v_gps = np.array(gps_data['velocity']).reshape((3, 1))
             v_horizontal = np.sqrt(v_gps[0]**2 + v_gps[1]**2)
 
-            if v_horizontal > 5.0:
+            if v_horizontal > 2.5: # 2.5 m/s
                 self._apply_update(self._heading_gps_update, v_gps)
-            elif imu_data is not None and 'mag' in imu_data:
-                mag = np.array(imu_data['mag']).reshape((3, 1))
-                self._apply_update(self._heading_mag_update, mag)
-        elif imu_data is not None and 'mag' in imu_data:
-            mag = np.array(imu_data['mag']).reshape((3, 1))
-            self._apply_update(self._heading_mag_update, mag)
+
 
     def _apply_update(self, update_handler, measurement):
         """
         Apply a single measurement update using the Kalman filter equations.
-
-        This method computes the Kalman gain and updates state and covariance
-        in a unified way for all update types.
 
         Args:
             update_handler: An instance of UpdateBase subclass
@@ -380,32 +316,16 @@ class EKF:
         except np.linalg.LinAlgError:
             return
 
-        # Handle special options for magnetometer update
-        if update_data.get('saturate_quaternion_gain', False):
-            max_gain = update_data.get('max_quaternion_gain', 0.1)
-            K[0:4, :] = np.clip(K[0:4, :], -max_gain, max_gain)
-
         # Update state
         self.x = self.x + K @ y
 
         # Update covariance
-        I_KH = np.eye(19) - K @ H
+        I_KH = np.eye(16) - K @ H
 
-        if update_data.get('use_joseph_form', False):
-            # Joseph form for numerical stability
-            self.P = I_KH @ self.P @ I_KH.T + K @ R @ K.T
-        else:
-            # Standard form
-            self.P = I_KH @ self.P
+        self.P = I_KH @ self.P
 
         # Normalize quaternion
         self.x[0:4] = self.x[0:4] / np.linalg.norm(self.x[0:4])
-
-        # Normalize B_NED if requested
-        if update_data.get('normalize_B_NED', False):
-            B_norm = np.linalg.norm(self.x[16:19])
-            if B_norm > 0.1:
-                self.x[16:19] = self.x[16:19] / B_norm
 
         # Enforce quaternion continuity
         self._enforce_quaternion_continuity()
@@ -424,3 +344,21 @@ class EKF:
             q_current = -q_current
 
         self._q_previous = q_current.copy()
+
+    def remove_yaw_from_quaternion(self):
+        q = self.x[0:4]
+
+        roll, pitch, yaw = Utils.quaternion_to_euler(q)
+
+        quaternion = Utils.quaternion_from_euler(roll, pitch, 0.0)
+
+        self.x[0] = quaternion[3]
+        self.x[1] = quaternion[0]
+        self.x[2] = quaternion[1]
+        self.x[3] = quaternion[2]
+        return
+    
+    def lock_yaw(self):
+        self.x[6] = 0.0
+        self.P[6, 6] = 0.0
+        self.remove_yaw_from_quaternion()

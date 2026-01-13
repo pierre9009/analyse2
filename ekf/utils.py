@@ -125,20 +125,13 @@ class Utils:
 
         return F
     
+    def remove_yaw_from_quaternion(self, q):
 
-    def compute_jacobian_F_extended(q, omega, accel_body, dt):
-        """
-        Jacobienne 19×19 avec estimation B_NED.
-        Structure: [q(4), p(3), v(3), b_gyro(3), b_accel(3), B_NED(3)]
-        """
-        F = np.eye(19)
-        
-        # Récupérer ancienne Jacobienne 16×16
-        F_16 = Utils.compute_jacobian_F(q, omega, accel_body, dt)
-        
-        # Copier dans coin supérieur gauche
-        F[0:16, 0:16] = F_16
-        
-        # B_NED est constant : F[16:19, 16:19] = I (déjà fait par np.eye)
-        
-        return F
+        roll, pitch, yaw = self.quaternion_to_euler(q)
+
+        quaternion = self.quaternion_from_euler(roll, pitch, yaw)
+
+
+        return quaternion
+
+

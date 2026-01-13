@@ -12,7 +12,6 @@ from ekf.updates.base import UpdateBase
 from ekf.updates.gps_position_velocity import GPSPositionVelocityUpdate
 from ekf.updates.accel_gravity import AccelGravityUpdate
 from ekf.updates.heading_gps import HeadingGPSUpdate
-from ekf.updates.heading_mag import HeadingMagUpdate
 
 __all__ = [
     'UpdateBase',

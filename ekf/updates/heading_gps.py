@@ -13,11 +13,11 @@ class HeadingGPSUpdate(UpdateBase):
     Measurement model: z = arctan2(vy, vx)
     This corrects yaw angle only.
 
-    Only valid when horizontal speed is sufficient (default > 5 m/s).
+    Only valid when horizontal speed is sufficient (default > 2.5 m/s).
     """
 
-    def __init__(self, R_heading=None, min_horizontal_speed=5.0):
-        super().__init__(state_dim=19)
+    def __init__(self, R_heading=None, min_horizontal_speed=2.5):
+        super().__init__(state_dim=16)
 
         # Default measurement noise covariance
         if R_heading is None:
@@ -31,7 +31,7 @@ class HeadingGPSUpdate(UpdateBase):
         Compute innovation for GPS heading.
 
         Args:
-            x: State vector (19x1)
+            x: State vector (16x1)
             measurement: GPS velocity (3x1) in NED frame
 
         Returns:
@@ -73,11 +73,11 @@ class HeadingGPSUpdate(UpdateBase):
         den = q0^2 + q1^2 - q2^2 - q3^2
 
         Args:
-            x: State vector (19x1)
+            x: State vector (16x1)
             measurement: Not used
 
         Returns:
-            np.ndarray: H matrix (1x19)
+            np.ndarray: H matrix (1x16)
         """
         q = x[0:4]
         q0, q1, q2, q3 = q.flatten()
