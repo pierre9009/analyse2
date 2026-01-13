@@ -54,6 +54,12 @@ class EKF:
         # For quaternion continuity
         self._q_previous = None
 
+        # GPS heading management
+        self._heading_initialized = False
+        self._last_gps_time = None
+        self._gps_timeout = 5.0  # seconds without GPS before disabling heading
+        self._heading_min_speed = 2.5  # m/s minimum speed to use GPS heading
+
         # Initialize update handlers
         self._gps_update = GPSPositionVelocityUpdate()
         self._accel_update = AccelGravityUpdate()
@@ -119,7 +125,7 @@ class EKF:
         roll_0 = np.arctan2(ay, az)
         pitch_0 = np.arctan2(-ax, np.sqrt(ay**2 + az**2))
 
-        # Yaw init at 0 deg (no reference will be updated via gps)
+        # Yaw init at 0 deg (will be initialized from GPS when moving fast enough)
         yaw_0 = 0
 
         # Initial quaternion
@@ -267,6 +273,8 @@ class EKF:
 
     def _update_glide(self, imu_data, gps_data):
         """Update sequence for glide phase."""
+        import time
+
         # GPS position + velocity
         if gps_data is not None and 'position' in gps_data and 'velocity' in gps_data:
             measurement = {
@@ -275,19 +283,60 @@ class EKF:
             }
             self._apply_update(self._gps_update, measurement)
 
+            # Update GPS timestamp
+            self._last_gps_time = time.time()
+
         # Accelerometer gravity (roll/pitch)
         if imu_data is not None and 'accel' in imu_data:
             accel_meas = np.array(imu_data['accel']).reshape((3, 1))
             self._apply_update(self._accel_update, accel_meas)
 
-        # Heading: GPS if moving fast
+        # Heading management: GPS if moving fast enough
         if gps_data is not None and 'velocity' in gps_data:
             v_gps = np.array(gps_data['velocity']).reshape((3, 1))
             v_horizontal = np.sqrt(v_gps[0]**2 + v_gps[1]**2)
 
-            if v_horizontal > 2.5: # 2.5 m/s
-                self._apply_update(self._heading_gps_update, v_gps)
+            if v_horizontal > self._heading_min_speed:
+                # Initialize heading on first valid GPS velocity
+                if not self._heading_initialized:
+                    self.initialize_heading_from_gps(v_gps)
+                else:
+                    # Update heading with GPS
+                    self._apply_update(self._heading_gps_update, v_gps)
 
+        # Check if GPS has been lost
+        if self._last_gps_time is not None:
+            time_since_gps = time.time() - self._last_gps_time
+            if time_since_gps > self._gps_timeout and self._heading_initialized:
+                print(f"   GPS lost for {time_since_gps:.1f}s - disabling heading updates")
+                self._heading_initialized = False
+
+
+    def initialize_heading_from_gps(self, v_gps):
+        """
+        Initialize the heading (yaw) from GPS velocity when moving fast enough.
+        This sets the yaw component of the quaternion to match GPS heading.
+
+        Args:
+            v_gps: GPS velocity (3x1) in NED frame
+        """
+        # Calculate heading from GPS velocity
+        heading_gps = np.arctan2(v_gps[1], v_gps[0])
+
+        # Get current roll and pitch from quaternion
+        q = self.x[0:4]
+        roll, pitch, _ = Utils.quaternion_to_euler(q)
+
+        # Create new quaternion with GPS heading
+        q_new = Utils.quaternion_from_euler(roll, pitch, heading_gps)
+
+        # Update state
+        self.x[0:4] = q_new.reshape((4, 1))
+
+        # Mark heading as initialized
+        self._heading_initialized = True
+
+        print(f"   Heading initialized from GPS: {np.rad2deg(heading_gps):.1f} deg")
 
     def _apply_update(self, update_handler, measurement):
         """
@@ -346,19 +395,31 @@ class EKF:
         self._q_previous = q_current.copy()
 
     def remove_yaw_from_quaternion(self):
+        """
+        Remove yaw component from quaternion (set yaw to 0).
+        Only called when heading is not initialized.
+        """
         q = self.x[0:4]
 
         roll, pitch, yaw = Utils.quaternion_to_euler(q)
 
+        # Create quaternion with zero yaw
         quaternion = Utils.quaternion_from_euler(roll, pitch, 0.0)
 
-        self.x[0] = quaternion[3]
-        self.x[1] = quaternion[0]
-        self.x[2] = quaternion[1]
-        self.x[3] = quaternion[2]
-        return
-    
+        # Update quaternion in state (note: quaternion format is [w, x, y, z])
+        self.x[0] = quaternion[0]  # w
+        self.x[1] = quaternion[1]  # x
+        self.x[2] = quaternion[2]  # y
+        self.x[3] = quaternion[3]  # z
+
     def lock_yaw(self):
-        self.x[6] = 0.0
-        self.P[6, 6] = 0.0
-        self.remove_yaw_from_quaternion()
+        """
+        Lock yaw estimation by forcing it to 0 and reducing its uncertainty.
+        Only active when heading has not been initialized from GPS.
+        """
+        if not self._heading_initialized:
+            # Remove yaw from quaternion
+            self.remove_yaw_from_quaternion()
+
+            self.x[6] = 0.0         #bias gyro a zero car pas d'estimation
+            self.P[6, 6] = 0.0      #pas d'incertitude vu que pas d'estimation

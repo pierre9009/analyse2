@@ -1,6 +1,5 @@
 bloquer le yaw dans la demo proprement, demo indoor: roll/pitch with 3D visu seulement
  - le yaw est locked quand pas updater par le gps
- - rendre propre le code
 
 code:
  - logging offline
