@@ -1,12 +1,12 @@
 import numpy as np
-
+np.set_printoptions(suppress=True, precision=8)
 # coef venant de https://github.com/mikoff/imu-calib
-SA = np.array([ 0.1010, 0.0046, 0.0064])
-MA = np.array([-0.0012, -0.1100, 0.0144])
+SA = np.array([ 0.0018, -0.0004, 0.0050])
+MA = np.array([-0.0030, 0.0007, -0.0037])
 
-SG=np.array([-0.0156,  -0.0168, 0.0818])
-MG=np.array([-0.0631, 0.0748, -0.0754])
-EG =np.array([-0.0950,  0.0396,  0.1061])
+SG=np.array([-0.0012,  0.0022, 0.0021])
+MG=np.array([-0.0021, 0.0011, 0.0018])
+EG =np.array([0.0024,  0.0018,  -0.0031])
 
 # 1) Inversion exacte d'une 3x3 triangulaire supérieure
 # M = [[a,b,c],
