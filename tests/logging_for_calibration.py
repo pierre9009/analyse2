@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 """Enregistre les données IMU dans un fichier .log"""
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from ekf.imu_api import ImuReader
 

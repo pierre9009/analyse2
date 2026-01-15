@@ -1,5 +1,9 @@
 import time
-from gps_api import GPSApi
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from ekf.gps_api import GPSApi
 
 def main():
     # Initialisation de l'API avec les pins configurés pour pigpio
