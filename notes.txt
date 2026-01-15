@@ -4,7 +4,7 @@ bloquer le yaw dans la demo proprement, demo indoor: roll/pitch with 3D visu seu
 code:
  - logging offline
 
-video tuto pour l'instalation
+video tuto pour l'instalation: raspberry pi + arduino avec calibration
 faire un test dans la rue avec donnees gps. afficher graphe des estimations.
 
 redaction:
