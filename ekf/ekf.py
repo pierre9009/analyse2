@@ -44,11 +44,11 @@ class EKF:
 
         # Process noise (16x16)
         self.Q = np.diag([
-            1e-5, 1e-5, 1e-5, 1e-5,      # quaternion
-            1e-2, 1e-2, 1e-2,            # position
-            5e-3, 5e-3, 5e-3,            # velocity
-            1e-7, 1e-7, 1e-7,            # gyro bias
-            1e-8, 1e-8, 1e-8,            # accel bias
+            1e-8, 1e-8, 1e-8, 1e-8,      # quaternion : presque 0 (dépend du gyro)
+            1e-12, 1e-12, 1e-12,         # position : presque 0 (dépend de la vitesse)
+            1e-4, 1e-4, 1e-4,            # velocity : l'incertitude réelle est ici (bruit accel)
+            1e-9, 1e-9, 1e-9,            # gyro bias : très stable
+            1e-10, 1e-10, 1e-10,         # accel bias : très stable
         ])
 
         # For quaternion continuity
@@ -289,7 +289,22 @@ class EKF:
         # Accelerometer gravity (roll/pitch)
         if imu_data is not None and 'accel' in imu_data:
             accel_meas = np.array(imu_data['accel']).reshape((3, 1))
-            self._apply_update(self._accel_update, accel_meas)
+            accel_norm = np.linalg.norm(accel_meas)
+            gyro_norm = np.linalg.norm(imu_data['gyro'])
+            
+            # Seuil de tolérance autour de 1G (9.81 m/s²)
+            # Si on tourne, l'accélération > 9.81 (ex: 1.06G à 20° de bank)
+            # Si on pousse le manche, l'accélération < 9.81
+            GRAVITY = 9.81
+            ACCEL_THRESHOLD = 0.2 # m/s² (environ 0.05 G de tolérance)
+
+            # On n'applique la correction 'Verticale' QUE si l'accélération est proche de 1G
+            if abs(accel_norm - GRAVITY) < ACCEL_THRESHOLD and gyro_norm < 0.05:
+                self._apply_update(self._accel_update, accel_meas)
+            else:
+                # Optionnel : log pour debug
+                # print(f"Turn detected (accel={accel_norm:.2f}), skipping gravity update")
+                pass
 
         # Heading management: GPS if moving fast enough
         if gps_data is not None and 'velocity' in gps_data:
@@ -421,5 +436,5 @@ class EKF:
             # Remove yaw from quaternion
             self.remove_yaw_from_quaternion()
 
-            self.x[6] = 0.0         #bias gyro a zero car pas d'estimation
-            self.P[6, 6] = 0.0      #pas d'incertitude vu que pas d'estimation
+            self.x[12] = 0.0         #bias gyro a zero car pas d'estimation
+            self.P[12, 12] = 0.0      #pas d'incertitude vu que pas d'estimation

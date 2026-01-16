@@ -129,7 +129,7 @@ class Utils:
 
         roll, pitch, yaw = self.quaternion_to_euler(q)
 
-        quaternion = self.quaternion_from_euler(roll, pitch, yaw)
+        quaternion = self.quaternion_from_euler(roll, pitch, 0.0)
 
 
         return quaternion
